@@ -19,7 +19,7 @@ module Replicate
       #          type, id, and attributes hash.
       #
       # Returns nothing.
-      def dump_replicant(dumper, opts={})
+      def dump_replicant(dumper, opts = {})
         @replicate_opts = opts
         @replicate_opts[:associations] ||= []
         @replicate_opts[:omit] ||= []
@@ -94,9 +94,9 @@ module Replicate
         end
 
         info = {
-          :class       => klass,
-          :primary_key => primary_key,
-          :foreign_key => foreign_key
+          class: klass,
+          primary_key: primary_key,
+          foreign_key: foreign_key,
         }
 
         if primary_key == klass.primary_key
@@ -131,9 +131,7 @@ module Replicate
           next if omitted_attributes.include?(reflection.name)
 
           # bail when this object has already been dumped
-          next if (info = replicate_reflection_info(reflection)) &&
-            (replicant_id = info[:replicant_id]) &&
-            dumper.dumped?(replicant_id)
+          next if (info = replicate_reflection_info(reflection)) && (replicant_id = info[:replicant_id]) && dumper.dumped?(replicant_id)
 
           next if (dependent = __send__(reflection.name)).nil?
 
@@ -148,8 +146,7 @@ module Replicate
               association_instance_set(reflection.name, nil)
             end
           else
-            warn "warn: #{self.class}##{reflection.name} #{association_type} association " \
-                 "unexpectedly returned a #{dependent.class}. skipping."
+            warn "warn: #{self.class}##{reflection.name} #{association_type} association unexpectedly returned a #{dependent.class}. skipping."
           end
         end
       end
@@ -194,7 +191,7 @@ module Replicate
 
       # Set the list of association names to dump to the specific set of values.
       def replicate_associations=(names)
-        @replicate_associations = names.uniq.map { |name| name.to_sym }
+        @replicate_associations = names.uniq.map(&:to_sym)
       end
 
       # Compound key used during load to locate existing objects for update.
@@ -216,7 +213,7 @@ module Replicate
 
       # Set or retrieve whether replicated object should keep its original id.
       # When not set, replicated objects will be created with new id.
-      def replicate_id(boolean=nil)
+      def replicate_id(boolean = nil)
         self.replicate_id = boolean unless boolean.nil?
         @replicate_id.nil? ? superclass.replicate_id : @replicate_id
       end
@@ -265,11 +262,12 @@ module Replicate
       # Returns the existing record if found, nil otherwise.
       def replicate_find_existing_record(attributes)
         return if replicate_natural_key.empty?
+
         conditions = {}
         replicate_natural_key.each do |attribute_name|
           conditions[attribute_name] = attributes[attribute_name.to_s]
         end
-        find(:first, :conditions => conditions)
+        find_by(**conditions)
       end
 
       # Update an AR object's attributes and persist to the database without
@@ -280,16 +278,13 @@ module Replicate
         # write replicated attributes to the instance
         attributes.each do |key, value|
           next if key == primary_key and not replicate_id
+
           instance.send :write_attribute, key, value
         end
 
         # save the instance bypassing all callbacks and validations
         replicate_disable_callbacks instance
-        if ::ActiveRecord::VERSION::MAJOR >= 3
-          instance.save :validate => false
-        else
-          instance.save false
-        end
+        instance.save(validate: false)
 
         [instance.id, instance]
       end
@@ -298,25 +293,14 @@ module Replicate
       # instance is effected. There is no way to re-enable callbacks once
       # they've been disabled on an object.
       def replicate_disable_callbacks(instance)
-        if ::ActiveRecord::VERSION::MAJOR >= 3
-          # AR 3.1.x, 3.2.x
-          def instance.run_callbacks(*args); yield if block_given?; end
+        # AR 3.1.x
+        def instance.run_callbacks(*args); yield if block_given?; end
 
-          # AR 3.0.x
-          def instance._run_save_callbacks(*args); yield; end
-          def instance._run_create_callbacks(*args); yield; end
-          def instance._run_update_callbacks(*args); yield; end
-          def instance._run_commit_callbacks(*args); yield; end
-        else
-          # AR 2.x
-          def instance.callback(*args)
-          end
-          def instance.record_timestamps
-            false
-          end
-        end
+        # AR 3.0.x
+        def instance._run_save_callbacks(*args); yield if block_given?; end
+        def instance._run_create_callbacks(*args); yield if block_given?; end
+        def instance._run_update_callbacks(*args); yield if block_given?; end
       end
-
     end
 
     # Special object used to dump the list of associated ids for a
@@ -335,11 +319,11 @@ module Replicate
       def attributes
         ids = @object.__send__("#{@reflection.name.to_s.singularize}_ids")
         {
-          'id'         => [:id, @object.class.to_s, @object.id],
-          'class'      => @object.class.to_s,
-          'ref_class'  => @reflection.klass.to_s,
-          'ref_name'   => @reflection.name.to_s,
-          'collection' => [:id, @reflection.klass.to_s, ids]
+          "id"         => [:id, @object.class.to_s, @object.id],
+          "class"      => @object.class.to_s,
+          "ref_class"  => @reflection.klass.to_s,
+          "ref_name"   => @reflection.name.to_s,
+          "collection" => [:id, @reflection.klass.to_s, ids]
         }
       end
 
@@ -350,28 +334,10 @@ module Replicate
       end
 
       def self.load_replicant(type, id, attrs)
-        object = attrs['class'].constantize.find(attrs['id'])
-        ids    = attrs['collection']
-        object.__send__("#{attrs['ref_name'].to_s.singularize}_ids=", ids)
+        object = attrs["class"].constantize.find(attrs["id"])
+        ids    = attrs["collection"]
+        object.__send__("#{attrs["ref_name"].to_s.singularize}_ids=", ids)
         [id, new(object, nil)]
-      end
-    end
-
-    # Backport connection.enable_query_cache! for Rails 2.x
-    require 'active_record/connection_adapters/abstract/query_cache'
-    query_cache = ::ActiveRecord::ConnectionAdapters::QueryCache
-    if !query_cache.methods.any? { |m| m.to_sym == :enable_query_cache! }
-      query_cache.module_eval do
-        attr_writer :query_cache, :query_cache_enabled
-
-        def enable_query_cache!
-          @query_cache ||= {}
-          @query_cache_enabled = true
-        end
-
-        def disable_query_cache!
-          @query_cache_enabled = false
-        end
       end
     end
 
