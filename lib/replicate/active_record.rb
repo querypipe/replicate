@@ -284,7 +284,10 @@ module Replicate
 
         # save the instance bypassing all callbacks and validations
         replicate_disable_callbacks instance
-        instance.save(validate: false)
+
+        unless instance.save(validate: false)
+          warn "failed to save #{instance.class}: #{instance.errors}"
+        end
 
         [instance.id, instance]
       end

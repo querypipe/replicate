@@ -74,8 +74,8 @@ module Replicate
       translate_ids type, id, attributes
       begin
         new_id, instance = model_class.load_replicant(type, id, attributes)
-      rescue => boom
-        warn "error: loading #{type} #{id} #{boom.class} #{boom}"
+      rescue => err
+        warn "error: loading #{type} #{id} #{err.class} #{err}"
         raise
       end
       register_id instance, type, id, new_id
@@ -94,14 +94,14 @@ module Replicate
     def translate_ids(type, id, attributes)
       attributes.each do |key, value|
         next unless value.is_a?(Array) && value[0] == :id
+
         referenced_type, value = value[1].to_s, value[2]
         local_ids =
           Array(value).map do |remote_id|
             if local_id = @keymap[referenced_type][remote_id]
               local_id
             else
-              warn "warn: #{referenced_type}(#{remote_id}) not in keymap, " +
-                   "referenced by #{type}(#{id})##{key}"
+              warn "warn: #{referenced_type}(#{remote_id}) not in keymap, referenced by #{type}(#{id})##{key}"
             end
           end
         if value.is_a?(Array)
@@ -117,7 +117,7 @@ module Replicate
     def register_id(object, type, remote_id, local_id)
       @keymap[type.to_s][remote_id] = local_id
       c = object.class
-      while !['Object', 'ActiveRecord::Base'].include?(c.name)
+      until ["Object", "ActiveRecord::Base"].include?(c.name)
         @keymap[c.name][remote_id] = local_id
         c = c.superclass
       end
@@ -125,26 +125,12 @@ module Replicate
 
     # Turn a string into an object by traversing constants. Identical to
     # ActiveSupport's String#constantize implementation.
-    if Module.method(:const_get).arity == 1
-      # 1.8 implementation doesn't have the inherit argument to const_defined?
-      def constantize(string)
-        string.split('::').inject ::Object do |namespace, name|
-          if namespace.const_defined?(name)
-            namespace.const_get(name)
-          else
-            namespace.const_missing(name)
-          end
-        end
-      end
-    else
-      # 1.9 implement has the inherit argument to const_defined?. Use it!
-      def constantize(string)
-        string.split('::').inject ::Object do |namespace, name|
-          if namespace.const_defined?(name, false)
-            namespace.const_get(name)
-          else
-            namespace.const_missing(name)
-          end
+    def constantize(string)
+      string.split('::').inject ::Object do |namespace, name|
+        if namespace.const_defined?(name, false)
+          namespace.const_get(name)
+        else
+          namespace.const_missing(name)
         end
       end
     end
